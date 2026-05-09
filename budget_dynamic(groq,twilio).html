@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HiveStaff Voice Agent — Budget Calculator</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0b0f1a;
+    --bg2: #111827;
+    --bg3: #1a2236;
+    --bg4: #1e2a40;
+    --border: rgba(99,160,255,0.12);
+    --border2: rgba(99,160,255,0.22);
+    --text: #e8edf8;
+    --text2: #8a9bbf;
+    --text3: #5a6a8a;
+    --accent: #3ee8b5;
+    --accent2: #1ec4f0;
+    --amber: #f0c040;
+    --red: #ff5c6a;
+    --groq: #3ee8b5;
+    --twilio: #1ec4f0;
+    --free: #8a9bbf;
+    --card-radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(62,232,181,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(62,232,181,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+  /* header */
+  header { margin-bottom: 2.5rem; }
+  header h1 {
+    font-size: clamp(1.6rem, 4vw, 2.4rem);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    color: var(--text);
+  }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--text2); margin-top: 0.5rem; font-size: 13px; font-family: 'DM Mono', monospace; }
+  .tag {
+    display: inline-block;
+    background: rgba(62,232,181,0.1);
+    border: 1px solid rgba(62,232,181,0.25);
+    color: var(--accent);
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: .08em;
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+  }
+
+  /* section labels */
+  .section-title {
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: .12em;
+    color: var(--text3);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    padding-left: 2px;
+  }
+
+  /* sliders panel */
+  .sliders-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+  .slider-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 16px 18px;
+    transition: border-color .2s;
+  }
+  .slider-card:hover { border-color: var(--border2); }
+  .slider-card label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11px;
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+    margin-bottom: 10px;
+  }
+  .slider-card label .val {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+  }
+  .slider-card .unit { font-size: 10px; color: var(--text3); margin-left: 3px; }
+  input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--bg4);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(62,232,181,0.5);
+    cursor: pointer;
+    transition: box-shadow .2s;
+  }
+  input[type=range]:hover::-webkit-slider-thumb { box-shadow: 0 0 14px rgba(62,232,181,0.7); }
+  input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+  }
+  .range-labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 6px; }
+
+  /* selects */
+  .select-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+  .select-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 16px 18px;
+  }
+  .select-card label { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; display: block; margin-bottom: 8px; }
+  .select-card select {
+    width: 100%;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    outline: none;
+  }
+  .select-card select:focus { border-color: var(--accent); }
+  .select-card .hint { font-size: 10px; color: var(--text3); margin-top: 6px; font-family: 'DM Mono', monospace; }
+
+  /* summary cards */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+  }
+  .summary-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 18px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s, transform .15s;
+  }
+  .summary-card:hover { border-color: var(--border2); transform: translateY(-1px); }
+  .summary-card.highlight {
+    background: linear-gradient(135deg, rgba(62,232,181,0.08), rgba(30,196,240,0.05));
+    border-color: rgba(62,232,181,0.3);
+  }
+  .summary-card .slabel { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+  .summary-card .sval { font-size: 26px; font-weight: 700; color: var(--text); line-height: 1; }
+  .summary-card.highlight .sval { color: var(--accent); }
+  .summary-card .ssub { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; margin-top: 6px; }
+  .summary-card .glow {
+    position: absolute; bottom: -20px; right: -20px;
+    width: 80px; height: 80px;
+    background: radial-gradient(circle, rgba(62,232,181,0.12) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+
+  /* charts */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 2rem;
+  }
+  @media(max-width: 640px) { .charts-grid { grid-template-columns: 1fr; } }
+  .chart-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    padding: 20px;
+  }
+  .chart-card h3 { font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 16px; }
+  .chart-wrap { position: relative; height: 220px; }
+  .legend-row { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text2); font-family: 'DM Mono', monospace; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  /* breakdown table */
+  .table-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    overflow: hidden;
+    margin-bottom: 2rem;
+  }
+  .table-card table { width: 100%; border-collapse: collapse; }
+  .table-card thead { background: var(--bg3); }
+  .table-card thead th {
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 10px;
+    font-family: 'DM Mono', monospace;
+    color: var(--text3);
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    font-weight: 400;
+  }
+  .table-card thead th:last-child,
+  .table-card thead th:nth-child(4),
+  .table-card thead th:nth-child(5) { text-align: right; }
+  .table-card tbody tr { border-top: 1px solid var(--border); transition: background .15s; }
+  .table-card tbody tr:hover { background: var(--bg3); }
+  .table-card tbody tr.subtotal { background: var(--bg3); }
+  .table-card tbody tr.subtotal td { font-weight: 600; color: var(--text2); font-family: 'DM Mono', monospace; font-size: 12px; }
+  .table-card tbody tr.grand { background: rgba(62,232,181,0.06); border-top: 1px solid rgba(62,232,181,0.2); }
+  .table-card tbody tr.grand td { font-weight: 700; color: var(--accent); font-size: 13px; }
+  .table-card tbody td {
+    padding: 10px 16px;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .table-card tbody td:last-child,
+  .table-card tbody td:nth-child(4),
+  .table-card tbody td:nth-child(5) { text-align: right; font-family: 'DM Mono', monospace; }
+  .table-card tbody td:nth-child(3) { color: var(--text3); font-family: 'DM Mono', monospace; font-size: 11px; }
+  .badge {
+    display: inline-block;
+    font-size: 9px;
+    font-family: 'DM Mono', monospace;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .badge.groq { background: rgba(62,232,181,0.12); color: var(--groq); border: 1px solid rgba(62,232,181,0.2); }
+  .badge.twilio { background: rgba(30,196,240,0.12); color: var(--twilio); border: 1px solid rgba(30,196,240,0.2); }
+  .badge.free { background: rgba(138,155,191,0.1); color: var(--free); border: 1px solid rgba(138,155,191,0.15); }
+
+  /* rates editor */
+  .rates-panel {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--card-radius);
+    overflow: hidden;
+    margin-bottom: 2rem;
+  }
+  .rates-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+    transition: background .15s;
+  }
+  .rates-toggle:hover { background: var(--bg3); }
+  .rates-toggle span { font-size: 11px; font-family: 'DM Mono', monospace; color: var(--text2); text-transform: uppercase; letter-spacing: .1em; }
+  .rates-toggle .arrow { color: var(--accent); font-size: 16px; transition: transform .2s; }
+  .rates-toggle.open .arrow { transform: rotate(180deg); }
+  .rates-body { display: none; padding: 0 20px 20px; }
+  .rates-body.open { display: block; }
+  .rates-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
+  .rate-item { display: flex; flex-direction: column; gap: 4px; }
+  .rate-item label { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; }
+  .rate-item input[type=number] {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    outline: none;
+    width: 100%;
+  }
+  .rate-item input[type=number]:focus { border-color: var(--accent); }
+  .reset-btn {
+    margin-top: 14px;
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--text2);
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .reset-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* footer */
+  footer { text-align: center; color: var(--text3); font-size: 11px; font-family: 'DM Mono', monospace; padding-top: 1rem; border-top: 1px solid var(--border); }
+
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .animate { animation: fadeUp .4s ease both; }
+  .animate-d1 { animation-delay: .05s; }
+  .animate-d2 { animation-delay: .1s; }
+  .animate-d3 { animation-delay: .15s; }
+  .animate-d4 { animation-delay: .2s; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="animate">
+    <div class="tag">Production Cost Estimator</div>
+    <h1>HiveStaff <span>Voice Agent</span><br>Budget Calculator</h1>
+    <p>// Adjust sliders — all calculations update live with corrected rates</p>
+  </header>
+
+  <!-- USAGE PARAMETERS -->
+  <div class="section-title">Usage Parameters</div>
+  <div class="sliders-grid animate animate-d1">
+    <div class="slider-card">
+      <label>Calls per day <span class="val" id="v-calls">50</span></label>
+      <input type="range" id="calls" min="1" max="1000" step="1" value="50">
+      <div class="range-labels"><span>1</span><span>1000</span></div>
+    </div>
+    <div class="slider-card">
+      <label>Avg call duration <span><span class="val" id="v-dur">2</span><span class="unit">min</span></span></label>
+      <input type="range" id="dur" min="1" max="60" step="1" value="2">
+      <div class="range-labels"><span>1 min</span><span>60 min</span></div>
+    </div>
+    <div class="slider-card">
+      <label>Turns per call <span class="val" id="v-turns">4</span></label>
+      <input type="range" id="turns" min="1" max="30" step="1" value="4">
+      <div class="range-labels"><span>1</span><span>30</span></div>
+    </div>
+    <div class="slider-card">
+      <label>AI reply length <span><span class="val" id="v-chars">110</span><span class="unit">ch</span></span></label>
+      <input type="range" id="chars" min="10" max="1000" step="10" value="110">
+      <div class="range-labels"><span>10</span><span>1000</span></div>
+    </div>
+    <div class="slider-card">
+      <label>Input tokens/turn <span><span class="val" id="v-intok">400</span><span class="unit">tok</span></span></label>
+      <input type="range" id="intok" min="50" max="4000" step="50" value="400">
+      <div class="range-labels"><span>50</span><span>4000</span></div>
+    </div>
+  </div>
+
+  <!-- OPTIONS -->
+  <div class="section-title">Options</div>
+  <div class="select-row animate animate-d1">
+    <div class="select-card">
+      <label>Region / call rates</label>
+      <select id="region">
+        <option value="us">US (+1) — Standard</option>
+        <option value="uk">UK (+44) — Standard</option>
+        <option value="au">AU (+61) — Standard</option>
+        <option value="in">IN (+91) — Standard</option>
+        <option value="eu">EU — Standard</option>
+      </select>
+      <div class="hint" id="region-hint">Inbound: $0.0085/min · Outbound: $0.0140/min</div>
+    </div>
+    <div class="select-card">
+      <label>Recording enabled?</label>
+      <select id="recording">
+        <option value="1">Yes — recording on</option>
+        <option value="0">No — recording off</option>
+      </select>
+      <div class="hint">+$0.0025/min when enabled</div>
+    </div>
+    <div class="select-card">
+      <label>LLM Model tier</label>
+      <select id="model">
+        <option value="llama3-8b">LLaMA 3 8B (cheap)</option>
+        <option value="llama3-70b">LLaMA 3 70B (mid)</option>
+        <option value="mixtral">Mixtral 8x7B</option>
+        <option value="gemma">Gemma 7B</option>
+      </select>
+      <div class="hint" id="model-hint">$0.05/$0.08 per 1M in/out tokens</div>
+    </div>
+    <div class="select-card">
+      <label>Days per month</label>
+      <select id="days">
+        <option value="30">30 days</option>
+        <option value="22">22 working days</option>
+        <option value="7">7 days</option>
+        <option value="1">1 day</option>
+      </select>
+      <div class="hint">Used for monthly estimates</div>
+    </div>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="section-title">Summary</div>
+  <div class="summary-grid animate animate-d2">
+    <div class="summary-card highlight">
+      <div class="slabel">Daily cost</div>
+      <div class="sval" id="s-daily">—</div>
+      <div class="ssub" id="s-daily-sub">total / day</div>
+      <div class="glow"></div>
+    </div>
+    <div class="summary-card">
+      <div class="slabel">Monthly cost</div>
+      <div class="sval" id="s-monthly">—</div>
+      <div class="ssub" id="s-monthly-sub">30 days</div>
+    </div>
+    <div class="summary-card">
+      <div class="slabel">Per call</div>
+      <div class="sval" id="s-percall">—</div>
+      <div class="ssub">all-in cost</div>
+    </div>
+    <div class="summary-card">
+      <div class="slabel">Monthly calls</div>
+      <div class="sval" id="s-calls">—</div>
+      <div class="ssub" id="s-calls-sub">projected volume</div>
+    </div>
+    <div class="summary-card">
+      <div class="slabel">Groq share</div>
+      <div class="sval" id="s-groq-pct">—</div>
+      <div class="ssub" id="s-groq-abs">AI processing</div>
+    </div>
+    <div class="summary-card">
+      <div class="slabel">Twilio share</div>
+      <div class="sval" id="s-twilio-pct">—</div>
+      <div class="ssub" id="s-twilio-abs">telephony</div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="section-title">Cost Distribution</div>
+  <div class="charts-grid animate animate-d3">
+    <div class="chart-card">
+      <h3>Daily cost by API (stacked bar)</h3>
+      <div class="chart-wrap">
+        <canvas id="barChart" role="img" aria-label="Stacked bar chart of daily costs by API provider"></canvas>
+      </div>
+      <div class="legend-row">
+        <div class="legend-item"><div class="legend-dot" style="background:#3ee8b5"></div>Groq</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1ec4f0"></div>Twilio</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#8a9bbf"></div>Free services</div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <h3>Monthly share (donut)</h3>
+      <div class="chart-wrap">
+        <canvas id="donutChart" role="img" aria-label="Donut chart showing cost share by provider"></canvas>
+      </div>
+      <div class="legend-row" id="donut-legend"></div>
+    </div>
+  </div>
+
+  <!-- BREAKDOWN TABLE -->
+  <div class="section-title">Full Calculation Breakdown</div>
+  <div class="table-card animate animate-d4">
+    <table>
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th>Line item</th>
+          <th>Calculation</th>
+          <th>Rate</th>
+          <th>Daily ($)</th>
+          <th>Monthly ($)</th>
+        </tr>
+      </thead>
+      <tbody id="breakdown-body"></tbody>
+    </table>
+  </div>
+
+  <!-- RATES EDITOR -->
+  <div class="rates-panel animate animate-d4">
+    <div class="rates-toggle" id="rates-toggle" onclick="toggleRates()">
+      <span>⚙ Edit API Rates (advanced)</span>
+      <span class="arrow">▼</span>
+    </div>
+    <div class="rates-body" id="rates-body">
+      <div class="rates-grid">
+        <div class="rate-item">
+          <label>Groq Whisper STT ($/min)</label>
+          <input type="number" id="r-whisper" value="0.001" step="0.0001" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>Groq LLaMA input ($/1M tokens)</label>
+          <input type="number" id="r-llama-in" value="0.05" step="0.01" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>Groq LLaMA output ($/1M tokens)</label>
+          <input type="number" id="r-llama-out" value="0.08" step="0.01" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>PlayAI TTS ($/1M chars)</label>
+          <input type="number" id="r-tts" value="22" step="1" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>Twilio inbound ($/min)</label>
+          <input type="number" id="r-twilio-in" value="0.0085" step="0.001" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>Twilio recording ($/min)</label>
+          <input type="number" id="r-twilio-rec" value="0.0025" step="0.001" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>Twilio phone number ($/month)</label>
+          <input type="number" id="r-twilio-num" value="1.15" step="0.05" min="0" onchange="recalc()">
+        </div>
+        <div class="rate-item">
+          <label>Twilio outbound ($/min)</label>
+          <input type="number" id="r-twilio-out" value="0.014" step="0.001" min="0" onchange="recalc()">
+        </div>
+      </div>
+      <button class="reset-btn" onclick="resetRates()">↺ Reset to defaults</button>
+    </div>
+  </div>
+
+  <footer>
+    HiveStaff Voice Agent Budget Calculator &nbsp;·&nbsp; Rates sourced from Groq & Twilio public pricing &nbsp;·&nbsp; All calculations client-side
+  </footer>
+</div>
+
+<script>
+// ─── STATE ──────────────────────────────────────────────────────────────────
+const regionRates = {
+  us: { inbound: 0.0085, label: 'Inbound: $0.0085/min · Outbound: $0.0140/min' },
+  uk: { inbound: 0.0090, label: 'Inbound: $0.0090/min · Outbound: $0.0170/min' },
+  au: { inbound: 0.0095, label: 'Inbound: $0.0095/min · Outbound: $0.0180/min' },
+  in: { inbound: 0.0075, label: 'Inbound: $0.0075/min · Outbound: $0.0120/min' },
+  eu: { inbound: 0.0085, label: 'Inbound: $0.0085/min · Outbound: $0.0165/min' }
+};
+
+const modelRates = {
+  'llama3-8b':  { in: 0.05, out: 0.08,  label: '$0.05/$0.08 per 1M in/out tokens' },
+  'llama3-70b': { in: 0.59, out: 0.79,  label: '$0.59/$0.79 per 1M in/out tokens' },
+  'mixtral':    { in: 0.27, out: 0.27,  label: '$0.27/$0.27 per 1M in/out tokens' },
+  'gemma':      { in: 0.10, out: 0.10,  label: '$0.10/$0.10 per 1M in/out tokens' }
+};
+
+const defaults = {
+  whisper: 0.001, llamaIn: 0.05, llamaOut: 0.08,
+  tts: 22, twilioIn: 0.0085, twilioRec: 0.0025,
+  twilioNum: 1.15, twilioOut: 0.014
+};
+
+// ─── CHARTS ─────────────────────────────────────────────────────────────────
+let barChart, donutChart;
+
+function initCharts() {
+  const barCtx = document.getElementById('barChart').getContext('2d');
+  barChart = new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: ['Whisper STT','LLaMA In','LLaMA Out','PlayAI TTS','Twilio In','Twilio Rec','Phone #'],
+      datasets: [
+        { label: 'Groq', data: [], backgroundColor: '#3ee8b5', borderRadius: 4 },
+        { label: 'Twilio', data: [], backgroundColor: '#1ec4f0', borderRadius: 4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(4) + '/day' }
+      }},
+      scales: {
+        x: { stacked: true, ticks: { color: '#5a6a8a', font: { family: 'DM Mono', size: 9 } }, grid: { color: 'rgba(99,160,255,0.06)' } },
+        y: { stacked: true, ticks: { color: '#5a6a8a', font: { family: 'DM Mono', size: 10 },
+            callback: v => '$' + v.toFixed(2) }, grid: { color: 'rgba(99,160,255,0.06)' } }
+      }
+    }
+  });
+
+  const donutCtx = document.getElementById('donutChart').getContext('2d');
+  donutChart = new Chart(donutCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Groq', 'Twilio'],
+      datasets: [{ data: [], backgroundColor: ['#3ee8b5','#1ec4f0'], borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: { legend: { display: false }, tooltip: {
+        callbacks: { label: ctx => ' ' + ctx.label + ': $' + ctx.parsed.toFixed(2) + '/mo' }
+      }}
+    }
+  });
+}
+
+// ─── HELPERS ────────────────────────────────────────────────────────────────
+function fmtD(n) { return '$' + n.toFixed(4); }
+function fmtM(n) { return '$' + n.toFixed(2); }
+function fmtPct(n) { return (n * 100).toFixed(1) + '%'; }
+
+function getRate(id) { return parseFloat(document.getElementById(id).value) || 0; }
+function getInt(id) { return parseInt(document.getElementById(id).value) || 0; }
+
+// ─── MAIN RECALC ────────────────────────────────────────────────────────────
+function recalc() {
+  const calls   = getInt('calls');
+  const dur     = getInt('dur');
+  const turns   = getInt('turns');
+  const chars   = getInt('chars');
+  const intok   = getInt('intok');
+  const days    = getInt('days');
+  const rec     = getInt('recording');
+  const region  = document.getElementById('region').value;
+  const model   = document.getElementById('model').value;
+
+  // Update region/model hints
+  document.getElementById('region-hint').textContent = regionRates[region].label;
+  document.getElementById('model-hint').textContent = modelRates[model].label;
+
+  // Sync model rates to rate editor
+  document.getElementById('r-llama-in').value = modelRates[model].in;
+  document.getElementById('r-llama-out').value = modelRates[model].out;
+  const twilioInRate = regionRates[region].inbound;
+  document.getElementById('r-twilio-in').value = twilioInRate;
+
+  // Rates
+  const rWhisper   = getRate('r-whisper');
+  const rLlamaIn   = getRate('r-llama-in') / 1e6;
+  const rLlamaOut  = getRate('r-llama-out') / 1e6;
+  const rTTS       = getRate('r-tts') / 1e6;
+  const rTwilioIn  = getRate('r-twilio-in');
+  const rTwilioRec = getRate('r-twilio-rec');
+  const rTwilioNum = getRate('r-twilio-num');
+
+  // Derived volumes
+  const audioMin    = calls * dur;                      // total audio minutes/day
+  const totalTurns  = calls * turns;                   // total AI turns/day
+  const inTokDay    = totalTurns * intok;              // LLM input tokens/day
+  const outTokPerT  = chars / 4;                       // output tokens per turn (4 chars/tok)
+  const outTokDay   = totalTurns * outTokPerT;         // LLM output tokens/day
+  const ttsCharsDay = totalTurns * chars;              // TTS chars/day
+
+  // Daily costs
+  const cWhisper   = audioMin * rWhisper;
+  const cLlamaIn   = inTokDay * rLlamaIn;
+  const cLlamaOut  = outTokDay * rLlamaOut;
+  const cTTS       = ttsCharsDay * rTTS;
+  const cGroq      = cWhisper + cLlamaIn + cLlamaOut + cTTS;
+
+  const cTwilioIn  = audioMin * rTwilioIn;
+  const cTwilioRec = rec ? audioMin * rTwilioRec : 0;
+  const cTwilioNum = rTwilioNum / 30;                  // daily fraction
+  const cTwilio    = cTwilioIn + cTwilioRec + cTwilioNum;
+
+  const cTotal = cGroq + cTwilio;
+  const cMonthly = cTotal * days;
+
+  // ─ Summary cards
+  document.getElementById('s-daily').textContent    = fmtM(cTotal);
+  document.getElementById('s-monthly').textContent  = fmtM(cMonthly);
+  document.getElementById('s-percall').textContent  = calls > 0 ? fmtD(cTotal / calls) : '$0.0000';
+  document.getElementById('s-calls').textContent    = (calls * days).toLocaleString();
+  document.getElementById('s-calls-sub').textContent = days + '-day volume';
+  document.getElementById('s-monthly-sub').textContent = days + ' days';
+  document.getElementById('s-groq-pct').textContent  = cTotal > 0 ? fmtPct(cGroq / cTotal) : '0%';
+  document.getElementById('s-groq-abs').textContent  = fmtM(cGroq) + '/day AI processing';
+  document.getElementById('s-twilio-pct').textContent = cTotal > 0 ? fmtPct(cTwilio / cTotal) : '0%';
+  document.getElementById('s-twilio-abs').textContent = fmtM(cTwilio) + '/day telephony';
+
+  // ─ Bar chart (individual line items)
+  barChart.data.datasets[0].data = [cWhisper, cLlamaIn, cLlamaOut, cTTS, 0, 0, 0];
+  barChart.data.datasets[1].data = [0, 0, 0, 0, cTwilioIn, cTwilioRec, cTwilioNum];
+  barChart.update('none');
+
+  // ─ Donut chart
+  const groqMo   = cGroq * days;
+  const twilioMo = cTwilio * days;
+  donutChart.data.datasets[0].data = [groqMo, twilioMo];
+  donutChart.update('none');
+  document.getElementById('donut-legend').innerHTML =
+    `<div class="legend-item"><div class="legend-dot" style="background:#3ee8b5"></div>Groq ${fmtPct(cTotal>0?cGroq/cTotal:0)} &nbsp; ${fmtM(groqMo)}/mo</div>
+     <div class="legend-item"><div class="legend-dot" style="background:#1ec4f0"></div>Twilio ${fmtPct(cTotal>0?cTwilio/cTotal:0)} &nbsp; ${fmtM(twilioMo)}/mo</div>`;
+
+  // ─ Breakdown table
+  const rows = [
+    // Groq rows
+    { provider:'groq', name:'Whisper STT', calc:`${audioMin.toLocaleString()} audio min/day`, rate:`$${rWhisper}/min`, d:cWhisper },
+    { provider:'groq', name:'LLaMA input tokens', calc:`${totalTurns} turns × ${intok} tok = ${inTokDay.toLocaleString()} tok`, rate:`$${getRate('r-llama-in')}/1M`, d:cLlamaIn },
+    { provider:'groq', name:'LLaMA output tokens', calc:`${totalTurns} turns × ${outTokPerT.toFixed(1)} tok = ${outTokDay.toFixed(0)} tok`, rate:`$${getRate('r-llama-out')}/1M`, d:cLlamaOut },
+    { provider:'groq', name:'PlayAI TTS', calc:`${totalTurns} turns × ${chars} chars = ${ttsCharsDay.toLocaleString()} ch`, rate:`$${getRate('r-tts')}/1M ch`, d:cTTS },
+    { subtotal: true, label: 'Groq subtotal', d: cGroq },
+    // Twilio rows
+    { provider:'twilio', name:'Inbound calls', calc:`${audioMin.toLocaleString()} min × $${rTwilioIn}/min`, rate:`$${rTwilioIn}/min`, d:cTwilioIn },
+    rec ? { provider:'twilio', name:'Call recording', calc:`${audioMin.toLocaleString()} min × $${rTwilioRec}/min`, rate:`$${rTwilioRec}/min`, d:cTwilioRec } : null,
+    { provider:'twilio', name:'Phone number', calc:`$${rTwilioNum}/mo ÷ 30 days`, rate:`$${rTwilioNum}/mo`, d:cTwilioNum },
+    { subtotal: true, label: 'Twilio subtotal', d: cTwilio },
+    // Free rows
+    { provider:'free', name:'Cloudflare Tunnel', calc:'no download, 1 SSH cmd', rate:'free', d:0 },
+    { provider:'free', name:'FAISS vector search', calc:'local, no API calls', rate:'free', d:0 },
+    { provider:'free', name:'SentenceTransformers', calc:'local model on Colab', rate:'free', d:0 },
+    { provider:'free', name:'Docling PDF parser', calc:'local, no API calls', rate:'free', d:0 },
+    // Grand total
+    { grand: true, d: cTotal }
+  ].filter(Boolean);
+
+  let html = '';
+  rows.forEach(r => {
+    if (r.grand) {
+      html += `<tr class="grand">
+        <td colspan="4"><strong>Grand Total</strong></td>
+        <td>${fmtM(r.d)}</td>
+        <td>${fmtM(r.d * days)}</td>
+      </tr>`;
+    } else if (r.subtotal) {
+      html += `<tr class="subtotal">
+        <td></td><td>${r.label}</td><td></td><td></td>
+        <td>${fmtM(r.d)}</td>
+        <td>${fmtM(r.d * days)}</td>
+      </tr>`;
+    } else {
+      html += `<tr>
+        <td><span class="badge ${r.provider}">${r.provider}</span></td>
+        <td>${r.name}</td>
+        <td>${r.calc}</td>
+        <td>${r.rate}</td>
+        <td>${r.d > 0 ? fmtD(r.d) : '<span style="color:#5a6a8a">$0.00</span>'}</td>
+        <td>${r.d > 0 ? fmtM(r.d * days) : '<span style="color:#5a6a8a">$0.00</span>'}</td>
+      </tr>`;
+    }
+  });
+  document.getElementById('breakdown-body').innerHTML = html;
+}
+
+// ─── RATES PANEL TOGGLE ────────────────────────────────────────────────────
+function toggleRates() {
+  const toggle = document.getElementById('rates-toggle');
+  const body   = document.getElementById('rates-body');
+  toggle.classList.toggle('open');
+  body.classList.toggle('open');
+}
+
+function resetRates() {
+  document.getElementById('r-whisper').value   = defaults.whisper;
+  document.getElementById('r-llama-in').value  = defaults.llamaIn;
+  document.getElementById('r-llama-out').value = defaults.llamaOut;
+  document.getElementById('r-tts').value       = defaults.tts;
+  document.getElementById('r-twilio-in').value = defaults.twilioIn;
+  document.getElementById('r-twilio-rec').value= defaults.twilioRec;
+  document.getElementById('r-twilio-num').value= defaults.twilioNum;
+  document.getElementById('r-twilio-out').value= defaults.twilioOut;
+  recalc();
+}
+
+// ─── SLIDER WIRING ─────────────────────────────────────────────────────────
+['calls','dur','turns','chars','intok'].forEach(id => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', () => {
+    document.getElementById('v-' + id).textContent = el.value;
+    recalc();
+  });
+});
+['region','recording','model','days'].forEach(id => {
+  document.getElementById(id).addEventListener('change', recalc);
+});
+
+// ─── INIT ──────────────────────────────────────────────────────────────────
+initCharts();
+recalc();
+</script>
+</body>
+</html>

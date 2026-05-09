@@ -1,0 +1,880 @@
+================================================================================
+  HIVESTAFF AI VOICE AGENT
+  Complete Project Documentation & Budget Costing
+  Version: 1.0  |  Platform: Google Colab + Twilio + Groq
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  TABLE OF CONTENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1.  What This Project Does
+  2.  Full System Architecture
+  3.  Call Flow — Step by Step
+  4.  RAG Pipeline (Document Intelligence)
+  5.  Emotion Detection & Voice Mapping
+  6.  Tech Stack Reference
+  7.  Project File Structure
+  8.  Notebook Cell Execution Guide (Cell 1 to Cell 10)
+  9.  Configuration Reference
+  10. Budget Costing — Full Breakdown
+       10.1  Assumptions & Parameters
+       10.2  Volume Calculations
+       10.3  Groq API Costs (Line by Line)
+       10.4  Twilio Costs (Line by Line)
+       10.5  Free / Zero-Cost Services
+       10.6  Grand Total Summary
+       10.7  Scale Scenarios (10 to 500 calls/day)
+       10.8  Cost Optimisation Tips
+  11. Troubleshooting Reference
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 1 — WHAT THIS PROJECT DOES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+HiveStaff AI Voice Agent is an intelligent, emotion-aware phone support system
+for HiveStaff, a workforce management platform.
+
+  A person calls a Twilio phone number
+  → The AI answers, listens, understands the question
+  → Searches your HiveStaff PDF documentation using semantic search (RAG)
+  → Detects the caller's emotional tone
+  → Replies with a natural-sounding human voice
+  → Records the full call and logs every conversation turn
+
+Key capabilities:
+  • Inbound and outbound calls via Twilio
+  • Speech-to-Text using Groq Whisper (whisper-large-v3-turbo)
+  • Document-grounded answers via RAG (FAISS + SentenceTransformers)
+  • LLM responses via Groq LLaMA 3.1 8B Instant — short, conversational
+  • Emotion detection with 7 emotion categories
+  • Natural Text-to-Speech via Groq PlayAI voices
+  • Full call recordings (both AI + user sides) stored locally
+  • Live call log dashboard in your browser
+  • Conversation memory — 16-message rolling window per session
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 2 — FULL SYSTEM ARCHITECTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                        INFRASTRUCTURE LAYER                             │
+  │                                                                         │
+  │   Phone Caller                                                          │
+  │       │                                                                 │
+  │       ▼                                                                 │
+  │   ┌────────────┐   webhook POST    ┌──────────────────────────────┐    │
+  │   │   Twilio   │ ───────────────► │  Flask Server on Google Colab │    │
+  │   │   Cloud    │ ◄─────────────── │  exposed via ngrok tunnel     │    │
+  │   └────────────┘   TwiML XML      └──────────────────────────────┘    │
+  │                                              │                          │
+  └──────────────────────────────────────────────┼──────────────────────── ┘
+                                                 │
+            ┌──────────────────────┬─────────────┴────────────────────┐
+            │                      │                                   │
+            ▼                      ▼                                   ▼
+     ┌─────────────┐    ┌────────────────────┐          ┌─────────────────────┐
+     │  /voice     │    │  /process_speech   │          │  /recording_status  │
+     │             │    │                    │          │                     │
+     │ Start full  │    │ Download recording │          │ Twilio callback     │
+     │ call record │    │ Transcribe (Groq   │          │ when full call      │
+     │ Play greet  │    │ Whisper)           │          │ recording is ready  │
+     │ Start STT   │    │ Detect emotion     │          │ Download + save     │
+     │ record      │    │ RAG retrieval      │          │ locally as .wav     │
+     └─────────────┘    │ LLaMA response     │          └─────────────────────┘
+                        │ PlayAI TTS audio   │
+                        │ Play audio + loop  │
+                        └────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                           AI SERVICES LAYER                             │
+  │                                                                         │
+  │   ALL paid API calls go to Groq (single API key):                       │
+  │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐    │
+  │   │  Groq Whisper    │  │  Groq LLaMA 3.1  │  │  Groq PlayAI    │    │
+  │   │  STT             │  │  8B Instant      │  │  TTS             │    │
+  │   │  $0.001/min      │  │  $0.05/$0.08     │  │  $22/1M chars   │    │
+  │   │  audio           │  │  per 1M in/out   │  │                 │    │
+  │   └──────────────────┘  └──────────────────┘  └──────────────────┘    │
+  │                                                                         │
+  │   ALL telephony goes through Twilio:                                     │
+  │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐    │
+  │   │  Inbound calls   │  │  Call recording  │  │  Phone number   │    │
+  │   │  $0.0085/min     │  │  $0.0025/min     │  │  $1.15/month    │    │
+  │   └──────────────────┘  └──────────────────┘  └──────────────────┘    │
+  │                                                                         │
+  │   ALL these run FREE (local on Colab):                                   │
+  │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐    │
+  │   │  FAISS vector    │  │  Sentence-        │  │  Docling PDF    │    │
+  │   │  search index    │  │  Transformers     │  │  parser         │    │
+  │   │  (CPU)           │  │  embeddings       │  │                 │    │
+  │   └──────────────────┘  └──────────────────┘  └──────────────────┘    │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 3 — CALL FLOW (STEP BY STEP)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  STEP 1  │  Caller dials your Twilio phone number
+           │
+  STEP 2  │  Twilio sends HTTP POST to your ngrok URL → /voice endpoint
+           │
+  STEP 3  │  Flask /voice handler runs:
+           │    a. Starts full call recording (Twilio API)
+           │    b. Plays pre-generated greeting audio
+           │    c. Instructs Twilio to record the caller's speech (max 45 sec)
+           │    d. Sets /process_speech as the callback when speech ends
+           │
+  STEP 4  │  Caller speaks. Twilio detects silence (2 sec) → stops recording
+           │
+  STEP 5  │  Twilio posts recording URL to /process_speech
+           │
+  STEP 6  │  Flask /process_speech handler runs:
+           │    a. Downloads the audio clip from Twilio
+           │    b. Sends audio to Groq Whisper → gets transcript text
+           │    c. Runs emotion detection on the transcript (keyword rules)
+           │    d. Embeds the transcript → FAISS search → retrieves top 3 chunks
+           │    e. Builds system prompt with context + emotion instruction
+           │    f. Calls Groq LLaMA 3.1 8B → gets AI reply (max 80 tokens)
+           │    g. Sends reply text to Groq PlayAI TTS → generates .wav audio
+           │    h. Saves .wav to /tmp/audio_responses/
+           │    i. Returns TwiML telling Twilio to play audio + listen again
+           │
+  STEP 7  │  Twilio plays AI audio to caller
+           │
+  STEP 8  │  Loop back to STEP 4 for next turn
+           │
+  STEP 9  │  When call ends, Twilio posts full call recording to
+           │  /recording_status → Flask downloads and saves it locally
+           │
+  STEP 10 │  Browser dashboard at /logs shows full transcript + audio player
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 4 — RAG PIPELINE (DOCUMENT INTELLIGENCE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  INDEXING PHASE (runs once at startup — Cell 2.5):
+
+  hivestaff_docs.pdf
+       │
+       ▼
+  Docling DocumentConverter
+       │  Converts PDF → clean Markdown text
+       │  Fallback: PyMuPDF if Docling gives empty output
+       ▼
+  Chunker
+       │  chunk_size    = 400 characters
+       │  chunk_overlap = 80 characters
+       │  Creates overlapping text windows to preserve sentence continuity
+       ▼
+  SentenceTransformer (all-MiniLM-L6-v2)
+       │  Embeds each chunk → 384-dimensional float32 vector
+       │  Runs on Colab GPU (free)
+       ▼
+  FAISS IndexFlatIP
+       │  Inner product (cosine after L2 normalisation)
+       │  All chunk vectors stored in memory
+       ▼
+  Index ready — typical result: 200–400 chunks per 30-page PDF
+
+
+  QUERY PHASE (runs on every caller turn):
+
+  User speech transcript
+       │
+       ▼
+  Embed with same SentenceTransformer model
+       │
+       ▼
+  FAISS search — top 3 chunks by cosine similarity
+       │  Score threshold: 0.20 minimum (chunks below this are skipped)
+       │
+       ▼
+  Retrieved text chunks concatenated as context block
+       │
+       ▼
+  Injected into LLaMA system prompt as === HIVESTAFF DOCUMENTATION ===
+       │
+       ▼
+  LLaMA answers ONLY from this context
+       (if no relevant chunk found → polite fallback message)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 5 — EMOTION DETECTION & VOICE MAPPING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Detection method: keyword matching (no extra API call, zero extra cost)
+
+  User says words like...         →  Detected as   →  AI responds as  →  Voice
+  ─────────────────────────────────────────────────────────────────────────────
+  "frustrated", "useless",        →  angry          →  sad             →  Aaliyah-PlayAI
+  "unacceptable", "pathetic"
+
+  "sad", "disappointed",          →  sad            →  sad             →  Aaliyah-PlayAI
+  "heartbroken", "upset"
+
+  "worried", "urgent", "bug",     →  fearful        →  calm            →  Aaliyah-PlayAI
+  "not working", "stuck"
+
+  "great", "amazing", "love",     →  happy          →  happy           →  Cole-PlayAI
+  "thank you so much"
+
+  "excited", "can't wait"         →  excited        →  excited         →  Cole-PlayAI
+
+  "shocked", "no way", "really"   →  surprised      →  surprised       →  Cole-PlayAI
+
+  (no keyword matched)            →  neutral        →  neutral         →  Cole-PlayAI
+
+  Emotion instruction is appended to the LLM system prompt to shape tone.
+  Voice is selected per emotion before TTS generation.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 6 — TECH STACK REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Component              Technology                          Cost
+  ─────────────────────────────────────────────────────────────────────────
+  Compute platform       Google Colab (T4 GPU recommended)   Free
+  Web server             Flask                               Free
+  Public tunnel          ngrok (free tier)                   Free
+  Phone calls            Twilio Programmable Voice           Paid (per min)
+  Speech-to-Text         Groq whisper-large-v3-turbo         Paid (per min)
+  Language model         Groq llama-3.1-8b-instant           Paid (per token)
+  Text-to-Speech         Groq playai-tts                     Paid (per char)
+  PDF parsing            Docling + PyMuPDF fallback          Free (local)
+  Embeddings             sentence-transformers/all-MiniLM-L6-v2  Free (local)
+  Vector search          FAISS CPU                           Free (local)
+  TTS fallback           gTTS                                Free
+  Local Whisper fallback openai-whisper base                 Free (local)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 7 — PROJECT FILE STRUCTURE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  twilio_trial_rag_docling.ipynb         ← Main notebook (upload and run this)
+  README.md                              ← Setup guide
+  budget_costing_dynamic.html            ← Interactive cost calculator (browser)
+
+  Paths created automatically inside Google Colab:
+
+  /content/sample_data/
+    └── hivestaff_docs.pdf               ← YOUR PDF — upload here before Cell 2.5
+
+  /content/docs_markdown/
+    └── doc_01.md                        ← Auto-generated Markdown (inspect only)
+
+  /tmp/audio_responses/
+    ├── <uuid>.wav                       ← AI TTS reply audio (per turn)
+    └── rec_<RecordingSid>.wav           ← Full call recordings (both sides)
+
+  Note: /tmp/ and all in-memory data (call logs, FAISS index, conversation
+  history) are wiped when the Colab runtime restarts. Re-run all cells to restore.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 8 — NOTEBOOK CELL EXECUTION GUIDE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Run ALL cells in order. Never skip. Each cell depends on the one before.
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 1 — Install Dependencies                                         │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Installs all Python packages and system tools (ffmpeg).             │
+  │                                                                        │
+  │  Packages installed:                                                   │
+  │    flask, pyngrok, twilio, openai-whisper, groq, gtts, pydub,         │
+  │    beautifulsoup4, sentence-transformers, faiss-cpu, numpy,            │
+  │    docling, pymupdf, ffmpeg (system)                                   │
+  │                                                                        │
+  │  Time: 2–4 minutes. Run once per Colab session.                        │
+  │  Success: prints "✅ All dependencies installed."                       │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 2 — Configuration (API Keys & Settings)                          │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Sets all API keys, model names, and tuning parameters.              │
+  │    Initialises twilio_client for use across all other cells.           │
+  │                                                                        │
+  │  You MUST fill in:                                                     │
+  │    GROQ_API_KEY        = "gsk_..."                                     │
+  │    TWILIO_ACCOUNT_SID  = "AC..."                                       │
+  │    TWILIO_AUTH_TOKEN   = "..."                                         │
+  │    TWILIO_PHONE_NUMBER = "+1XXXXXXXXXX"                                │
+  │    NGROK_AUTH_TOKEN    = "..."                                         │
+  │                                                                        │
+  │  Key tuning parameters:                                                │
+  │    LLAMA_MODEL       = "llama-3.1-8b-instant"                         │
+  │    CHUNK_SIZE        = 400    (RAG chunk characters)                   │
+  │    CHUNK_OVERLAP     = 80     (overlap between chunks)                 │
+  │    TOP_K_CHUNKS      = 3      (chunks retrieved per query)             │
+  │    RECORD_MAX_LENGTH = 45     (max user speech in seconds)             │
+  │    RECORD_TIMEOUT    = 2      (silence seconds to end recording)       │
+  │                                                                        │
+  │  Success: prints "✅ Configuration set."                                │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 2.5 — Build RAG Index (PDF → FAISS)                              │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    1. Reads hivestaff_docs.pdf using Docling                           │
+  │    2. Falls back to PyMuPDF if Docling gives empty output              │
+  │    3. Splits text into 400-char chunks (80-char overlap)               │
+  │    4. Generates 384-dim embeddings with all-MiniLM-L6-v2               │
+  │    5. Builds FAISS IndexFlatIP (inner product, L2 normalised)          │
+  │    6. Runs sanity check search on "staff management"                   │
+  │                                                                        │
+  │  Before running: upload your PDF to Colab at                           │
+  │    /content/sample_data/hivestaff_docs.pdf                             │
+  │                                                                        │
+  │  Success output example:                                               │
+  │    🎉 RAG system ready!                                                 │
+  │       Files   : 1                                                      │
+  │       Chunks  : 312                                                    │
+  │       Vectors : 312                                                    │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 3 — Load Local Whisper Model (Fallback)                          │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Loads OpenAI Whisper "base" model into Colab memory.                │
+  │    This is the LOCAL fallback only — primary STT is Groq cloud         │
+  │    Whisper which is faster and more accurate.                          │
+  │                                                                        │
+  │  Success: prints "✅ Whisper 'base' model loaded."                      │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 4 — LLM + RAG + Emotion Engine                                   │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Defines the full AI intelligence pipeline:                          │
+  │      detect_emotion(text)       — keyword-based emotion classifier     │
+  │      retrieve_context(query)    — FAISS semantic search, top 3 chunks  │
+  │      get_ai_response(id, text)  — full pipeline orchestrator:          │
+  │                                   emotion → RAG → LLaMA → reply       │
+  │                                                                        │
+  │  LLM settings used:                                                    │
+  │    max_tokens  = 80   (short, phone-friendly replies)                  │
+  │    temperature = 0.4  (controlled, consistent)                         │
+  │    history     = last 16 messages per session                          │
+  │                                                                        │
+  │  Auto-runs a quick test at end to verify the pipeline works.           │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 5 — Text-to-Speech (Groq PlayAI)                                 │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Defines text_to_speech() function using Groq PlayAI voices.         │
+  │    Voice selected based on detected emotion:                           │
+  │      Aaliyah-PlayAI → sad, calm emotions                               │
+  │      Cole-PlayAI    → neutral, happy, excited, surprised               │
+  │    Speech speed: 1.1x (slightly faster than normal)                    │
+  │    Pre-generates greeting audio file so first response is instant.     │
+  │                                                                        │
+  │  Output: .wav files saved to /tmp/audio_responses/                     │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 6.5 — Call Logger                                                │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Sets up in-memory logging structures:                               │
+  │      call_logs       — all conversation turns per session              │
+  │      active_sessions — metadata per call (caller, turns, start time)   │
+  │      call_recordings — recording URLs per session                      │
+  │                                                                        │
+  │  Helper functions you can run anytime in Cell 10:                      │
+  │    print_all_sessions()              → summary of all calls            │
+  │    print_full_transcript("sid")      → full log for one call           │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 6 — Flask Server (All HTTP Routes)                               │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Defines all Flask routes that Twilio talks to:                      │
+  │                                                                        │
+  │    GET/POST /voice                                                     │
+  │      Entry point for every call. Starts full recording, plays          │
+  │      greeting, begins listening for user speech.                       │
+  │                                                                        │
+  │    POST /process_speech                                                │
+  │      Receives recorded user audio. Runs full AI pipeline.             │
+  │      Returns TwiML with AI audio URL + next listen instruction.        │
+  │                                                                        │
+  │    POST /recording_status                                              │
+  │      Twilio callback when full call recording is ready.                │
+  │      Downloads and saves .wav locally. Updates dashboard URL.          │
+  │                                                                        │
+  │    GET /audio/<filename>                                               │
+  │      Serves .wav files (AI replies + call recordings) to Twilio.      │
+  │                                                                        │
+  │    GET /logs                                                           │
+  │      Browser dashboard with live transcripts and audio players.        │
+  │                                                                        │
+  │    GET /status                                                         │
+  │      JSON health check endpoint.                                       │
+  │                                                                        │
+  │  Success: prints "✅ Flask ready — natural voice, fast STT..."          │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 7 — Start ngrok + Flask (Go Live)                                │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    1. Kills any existing Flask process on port 5000                    │
+  │    2. Kills old ngrok tunnels                                          │
+  │    3. Starts new ngrok tunnel → generates PUBLIC_URL                   │
+  │    4. Launches Flask in a background thread                            │
+  │                                                                        │
+  │  Output:                                                               │
+  │    ╔══════════════════════════════════════════════════╗               │
+  │    ║  🚀 Voice Agent is LIVE                          ║               │
+  │    ║  Public URL : https://xxxx-xxxx.ngrok-free.app   ║               │
+  │    ║  Webhook    : https://xxxx-xxxx.ngrok-free.app/voice ║           │
+  │    ║  👉 Paste Webhook URL into Twilio console        ║               │
+  │    ╚══════════════════════════════════════════════════╝               │
+  │                                                                        │
+  │  IMPORTANT: After this runs, paste the Webhook URL into Twilio         │
+  │  console → Phone Numbers → your number → Voice webhook.               │
+  │  ngrok URL changes every time this cell reruns.                        │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 9 — Make Outbound Call                                           │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Places an outbound call to YOUR_PHONE_NUMBER via Twilio API.        │
+  │    When you answer, the AI speaks immediately.                         │
+  │                                                                        │
+  │  Set before running:                                                   │
+  │    YOUR_PHONE_NUMBER = "+91XXXXXXXXXX"  (include country code)        │
+  │                                                                        │
+  │  Note: Twilio trial accounts can only call verified numbers.           │
+  │  Add your number at Twilio Console → Verified Caller IDs first.        │
+  └────────────────────────────────────────────────────────────────────────┘
+
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  CELL 10 — View Logs                                                   │
+  ├────────────────────────────────────────────────────────────────────────┤
+  │  What it does:                                                         │
+  │    Prints session summary to Colab console.                            │
+  │    Prints the browser dashboard URL.                                   │
+  │    Open https://your-ngrok-url/logs in browser for full dashboard.     │
+  └────────────────────────────────────────────────────────────────────────┘
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 9 — CONFIGURATION REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  All in CELL 2 unless noted:
+
+  Parameter            Default                  Effect
+  ─────────────────────────────────────────────────────────────────────────
+  LLAMA_MODEL          llama-3.1-8b-instant     LLM used for responses
+  CHUNK_SIZE           400                      Characters per RAG chunk
+  CHUNK_OVERLAP        80                       Overlap between chunks
+  TOP_K_CHUNKS         3                        Chunks retrieved per query
+  EMBED_MODEL          all-MiniLM-L6-v2         Embedding model
+  RECORD_MAX_LENGTH    45                       Max seconds of user speech
+  RECORD_TIMEOUT       2                        Silence seconds to end recording
+
+  In CELL 4:
+  max_tokens           80                       Max output tokens from LLaMA
+  temperature          0.4                      Creativity (lower = consistent)
+  history window       16                       Messages kept per session
+
+  In CELL 5:
+  speed                1.1                      TTS speech speed
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 10 — BUDGET COSTING (FULL BREAKDOWN)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  All calculations verified against official pricing pages:
+    Groq:   console.groq.com/settings/billing
+    Twilio: twilio.com/en-us/voice/pricing (US number)
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.1  ASSUMPTIONS & PARAMETERS (matching your notebook settings)
+  ──────────────────────────────────────────────────────────────────────────
+
+  Usage parameters:
+    Calls per day                =  50 calls
+    Average call duration        =  2 minutes
+    Conversation turns per call  =  4 turns
+    AI reply length              =  110 characters per turn (TTS billing)
+    LLM input tokens per turn    =  400 tokens
+      (system prompt + RAG context + conversation history + user query)
+    LLM max output tokens        =  80 tokens (from Cell 4: max_tokens=80)
+    Call recording               =  ON ($0.0025/min extra)
+    Region                       =  US (+1 number)
+    Days per month               =  30
+
+  Rates used (verified, as of mid-2024):
+    Groq Whisper large-v3-turbo  =  $0.001  per audio minute
+    Groq LLaMA 3.1 8B input      =  $0.05   per 1,000,000 tokens
+    Groq LLaMA 3.1 8B output     =  $0.08   per 1,000,000 tokens
+    Groq PlayAI TTS              =  $22.00  per 1,000,000 characters
+    Twilio inbound voice         =  $0.0085 per minute
+    Twilio call recording        =  $0.0025 per minute
+    Twilio phone number rental   =  $1.15   per month
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.2  VOLUME CALCULATIONS (daily, at 50 calls)
+  ──────────────────────────────────────────────────────────────────────────
+
+  Audio minutes per day:
+    = calls × duration
+    = 50 × 2
+    = 100 minutes/day
+
+  Total conversation turns per day:
+    = calls × turns per call
+    = 50 × 4
+    = 200 turns/day
+
+  LLM input tokens per day:
+    = total turns × input tokens per turn
+    = 200 × 400
+    = 80,000 tokens/day
+
+  LLM output tokens per day:
+    = total turns × max output tokens per turn
+    = 200 × 80
+    = 16,000 tokens/day
+    (Note: actual output is often less than max_tokens.
+     This is the worst-case / upper-bound calculation.)
+
+  TTS characters per day:
+    = total turns × reply length in characters
+    = 200 × 110
+    = 22,000 characters/day
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.3  GROQ API COSTS (Line by Line)
+  ──────────────────────────────────────────────────────────────────────────
+
+  LINE 1 — Whisper STT (Speech-to-Text)
+  ───────────────────────────────────────
+  Service:    Groq whisper-large-v3-turbo
+  Billing:    Per audio minute processed
+  Rate:       $0.001 per minute
+
+  Daily calculation:
+    = audio minutes per day × rate
+    = 100 min × $0.001/min
+    = $0.1000 per day
+
+  Monthly:
+    = $0.1000 × 30
+    = $3.00 per month
+
+  ─────────────────────────────────────────────────────────
+  LINE 2 — LLaMA 3.1 8B Input Tokens
+  ───────────────────────────────────
+  Service:    Groq llama-3.1-8b-instant (input side)
+  Billing:    Per input token sent to the model
+  Rate:       $0.05 per 1,000,000 tokens
+
+  Daily calculation:
+    = input tokens per day × (rate per token)
+    = 80,000 × ($0.05 ÷ 1,000,000)
+    = 80,000 × $0.00000005
+    = $0.0040 per day
+
+  Monthly:
+    = $0.0040 × 30
+    = $0.12 per month
+
+  ─────────────────────────────────────────────────────────
+  LINE 3 — LLaMA 3.1 8B Output Tokens
+  ─────────────────────────────────────
+  Service:    Groq llama-3.1-8b-instant (output side)
+  Billing:    Per output token generated by the model
+  Rate:       $0.08 per 1,000,000 tokens
+
+  Daily calculation:
+    = output tokens per day × (rate per token)
+    = 16,000 × ($0.08 ÷ 1,000,000)
+    = 16,000 × $0.00000008
+    = $0.0013 per day
+
+  Monthly:
+    = $0.0013 × 30
+    = $0.04 per month
+
+  ─────────────────────────────────────────────────────────
+  LINE 4 — PlayAI TTS (Text-to-Speech)
+  ──────────────────────────────────────
+  Service:    Groq playai-tts (Aaliyah-PlayAI / Cole-PlayAI)
+  Billing:    Per character of text converted to audio
+  Rate:       $22.00 per 1,000,000 characters
+
+  Daily calculation:
+    = TTS characters per day × (rate per character)
+    = 22,000 × ($22 ÷ 1,000,000)
+    = 22,000 × $0.000022
+    = $0.4840 per day
+
+  Monthly:
+    = $0.4840 × 30
+    = $14.52 per month
+
+  Note: TTS is the LARGEST Groq cost by far.
+  Reducing reply length from 110 to 70 characters saves ~$5/month at 50 calls.
+
+  ─────────────────────────────────────────────────────────
+  GROQ SUBTOTAL
+  ──────────────
+  Daily:   $0.1000 + $0.0040 + $0.0013 + $0.4840
+         = $0.5893 per day
+
+  Monthly: $0.5893 × 30
+         = $17.68 per month
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.4  TWILIO COSTS (Line by Line)
+  ──────────────────────────────────────────────────────────────────────────
+
+  LINE 5 — Twilio Inbound Voice Calls
+  ─────────────────────────────────────
+  Service:    Twilio Programmable Voice (inbound, US number)
+  Billing:    Per minute of connected call time
+  Rate:       $0.0085 per minute
+
+  Daily calculation:
+    = audio minutes per day × rate
+    = 100 min × $0.0085/min
+    = $0.8500 per day
+
+  Monthly:
+    = $0.8500 × 30
+    = $25.50 per month
+
+  Note: This is the LARGEST cost in the entire system.
+  Twilio dominates the bill, not Groq.
+
+  ─────────────────────────────────────────────────────────
+  LINE 6 — Twilio Call Recording
+  ────────────────────────────────
+  Service:    Twilio call recording (enabled in /voice route)
+  Billing:    Per minute of call recorded
+  Rate:       $0.0025 per minute
+
+  Daily calculation:
+    = audio minutes per day × rate
+    = 100 min × $0.0025/min
+    = $0.2500 per day
+
+  Monthly:
+    = $0.2500 × 30
+    = $7.50 per month
+
+  To disable recording and save this cost:
+  Set recording="off" in the /voice TwiML and remove the record_track
+  parameter in the Twilio calls.create() call.
+
+  ─────────────────────────────────────────────────────────
+  LINE 7 — Twilio Phone Number Rental
+  ─────────────────────────────────────
+  Service:    Twilio local phone number (US +1)
+  Billing:    Fixed monthly fee, prorated daily here
+  Rate:       $1.15 per month
+
+  Daily calculation (prorated):
+    = $1.15 ÷ 30 days
+    = $0.0383 per day
+
+  Monthly:
+    = $1.15 per month (fixed)
+
+  ─────────────────────────────────────────────────────────
+  TWILIO SUBTOTAL
+  ────────────────
+  Daily:   $0.8500 + $0.2500 + $0.0383
+         = $1.1383 per day
+
+  Monthly: $1.1383 × 30
+         = $34.15 per month
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.5  FREE / ZERO-COST SERVICES
+  ──────────────────────────────────────────────────────────────────────────
+
+  Service                    How it is free
+  ─────────────────────────────────────────────────────────────────────────
+  Google Colab               Free tier (T4 GPU, ~12hr sessions)
+  ngrok                      Free tier (1 tunnel, URL changes per restart)
+  FAISS vector search        Runs on Colab CPU, no API calls
+  SentenceTransformers       all-MiniLM-L6-v2 runs on Colab GPU, no API
+  Docling PDF parser         Runs locally on Colab, no API
+  PyMuPDF fallback           Runs locally on Colab, no API
+  gTTS (TTS fallback)        Google free TTS (used only if PlayAI fails)
+  Local Whisper (fallback)   "base" model on Colab, no API (used as backup)
+
+  Total free services cost:  $0.00 / month
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.6  GRAND TOTAL SUMMARY
+  ──────────────────────────────────────────────────────────────────────────
+
+  At 50 calls/day, 2 min/call, 4 turns, 110 chars reply, recording ON:
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  Provider    Service              Daily ($)    Monthly ($)      │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  Groq        Whisper STT          $0.1000      $3.00            │
+  │  Groq        LLaMA input tokens   $0.0040      $0.12            │
+  │  Groq        LLaMA output tokens  $0.0013      $0.04            │
+  │  Groq        PlayAI TTS           $0.4840      $14.52           │
+  │              ─────────────────────────────────────────          │
+  │              Groq subtotal        $0.5893      $17.68           │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  Twilio      Inbound calls        $0.8500      $25.50           │
+  │  Twilio      Call recording       $0.2500      $7.50            │
+  │  Twilio      Phone number         $0.0383      $1.15            │
+  │              ─────────────────────────────────────────          │
+  │              Twilio subtotal      $1.1383      $34.15           │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  Free        FAISS, Docling,      $0.00        $0.00            │
+  │              embeddings, ngrok,   $0.00        $0.00            │
+  │              Colab, gTTS          $0.00        $0.00            │
+  ├─────────────────────────────────────────────────────────────────┤
+  │  GRAND TOTAL                      $1.7276      $51.83           │
+  │  Per call cost                    $0.0346      (all-in)         │
+  └─────────────────────────────────────────────────────────────────┘
+
+  Cost split by provider:
+    Groq share:   34.1%  ($0.5893/day)   — AI processing
+    Twilio share: 65.9%  ($1.1383/day)   — Telephony
+
+  Important insight: Twilio is the dominant cost, not Groq.
+  The AI (Groq) is surprisingly cheap. Telephony (Twilio) is the expense.
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.7  SCALE SCENARIOS (same settings, different call volumes)
+  ──────────────────────────────────────────────────────────────────────────
+
+  Calls/day    Audio min/day    Daily cost    Monthly cost    Per call
+  ─────────────────────────────────────────────────────────────────────────
+       10         20 min          $0.35         $10.37         $0.0346
+       25         50 min          $0.86         $25.91         $0.0346
+       50        100 min          $1.73         $51.83         $0.0346
+      100        200 min          $3.46        $103.66         $0.0346
+      200        400 min          $6.91        $207.31         $0.0346
+      500      1,000 min         $17.28        $518.28         $0.0346
+    1,000      2,000 min         $34.55      $1,036.56         $0.0346
+
+  Per-call cost stays flat because all costs scale linearly.
+  There are no volume discounts at these usage levels.
+
+  ──────────────────────────────────────────────────────────────────────────
+  10.8  COST OPTIMISATION TIPS
+  ──────────────────────────────────────────────────────────────────────────
+
+  1. BIGGEST SAVING — Reduce AI reply length (TTS cost)
+     Current:  110 chars/reply  → $14.52/month (Groq TTS)
+     If 70ch:   70 chars/reply  → $9.24/month  → saves $5.28/month
+     If 50ch:   50 chars/reply  → $6.60/month  → saves $7.92/month
+     Change: reduce chars_per_reply assumption and keep AI prompt to 1 sentence.
+
+  2. BIGGEST SAVING — Disable recording when not needed
+     Recording adds $7.50/month at 50 calls/day.
+     If calls are for support QA only occasionally, record selectively.
+
+  3. Reduce turns per call
+     If average conversation is 2 turns (not 4):
+     Halves LLaMA, TTS, and Whisper costs (saves ~$0.29/day = $8.70/month).
+
+  4. Reduce TOP_K_CHUNKS from 3 to 2
+     Each chunk is ~400 chars of context included in LLM input.
+     TOP_K_CHUNKS=2 vs 3 cuts ~133 input tokens per turn
+     → saves ~$0.001/day at 50 calls → minor saving but faster responses.
+
+  5. Move to Twilio PAYG vs monthly if call volume is very low
+     At under 10 calls/day the fixed phone number cost ($1.15/mo) is the
+     relatively biggest fixed overhead — can't reduce below this.
+
+  6. For production scale (500+ calls/day) — negotiate Twilio volume pricing
+     Twilio offers discounted rates for high-volume customers.
+     At 1,000 calls/day contact Twilio enterprise team.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SECTION 11 — TROUBLESHOOTING REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Problem                              Solution
+  ─────────────────────────────────────────────────────────────────────────
+  Recording shows "processing..."      Recordings complete 30–60 sec after
+  and never loads in dashboard         call ends. Hit Refresh. Also ensure
+                                       PUBLIC_URL is set (Cell 7 must run
+                                       before Cell 9).
+
+  AI response is very slow             Switch Colab runtime to T4 GPU.
+                                       Reduce TOP_K_CHUNKS to 2 (Cell 2).
+                                       Reduce max_tokens to 60 (Cell 4).
+
+  "I didn't catch that" repeating      Check Colab console for Groq Whisper
+                                       errors. Ensure RECORD_TIMEOUT >= 2.
+                                       Check audio file is > 5000 bytes.
+
+  Twilio not reaching webhook          Confirm ngrok tunnel is running (Cell
+                                       7 output). Re-paste webhook URL into
+                                       Twilio console — it changes on restart.
+
+  PDF not loading / 0 chunks           Confirm file is at exactly:
+                                       /content/sample_data/hivestaff_docs.pdf
+                                       PyMuPDF fallback runs automatically
+                                       if Docling gives empty output.
+
+  Outbound call not connecting         Trial accounts require verified numbers.
+                                       Add your number at Twilio Console →
+                                       Verified Caller IDs. Include country
+                                       code in YOUR_PHONE_NUMBER (+91...).
+
+  All data lost after Colab restart    Expected — /tmp/ resets on restart.
+                                       Re-run all cells from Cell 1 to Cell 7.
+                                       For persistence, save recordings to
+                                       Google Drive instead of /tmp/.
+
+  ngrok URL changes on every restart   This is normal on the free tier. After
+                                       every Cell 7 run, re-paste the new URL
+                                       into Twilio console webhook field.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  QUICK REFERENCE — API KEYS NEEDED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Key                  Where to get it                        Used for
+  ─────────────────────────────────────────────────────────────────────────
+  GROQ_API_KEY         console.groq.com → API Keys            STT + LLM + TTS
+  TWILIO_ACCOUNT_SID   twilio.com/console → dashboard         Calls
+  TWILIO_AUTH_TOKEN    twilio.com/console → dashboard         Calls
+  TWILIO_PHONE_NUMBER  Twilio Console → Phone Numbers         Your number
+  NGROK_AUTH_TOKEN     dashboard.ngrok.com → Your Authtoken   Tunnel
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  END OF DOCUMENT
+  HiveStaff AI Voice Agent — Project Documentation v1.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
