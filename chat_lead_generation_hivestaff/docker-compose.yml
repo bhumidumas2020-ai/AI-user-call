@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: hivestaff_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+  chatbot:
+    build: .
+    container_name: hivestaff_chatbot
+    ports:
+      - "8888:8888"
+    env_file:
+      - .env
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - .:/app
+
+volumes:
+  ollama_data:
